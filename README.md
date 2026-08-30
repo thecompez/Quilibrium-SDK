@@ -2,6 +2,8 @@
 
 A modern **C++23 SDK for the Quilibrium ecosystem**, providing a unified native interface for HyperSnap, QStorage, QKMS, Quilibrium protocol RPCs, multi-peer routing, and cross-language integrations.
 
+<img width="1672" height="941" alt="56923f1e-fac4-430a-a4ab-e6738411109f" src="https://github.com/user-attachments/assets/a38f6ae1-1b0b-4041-be36-9ad92367d9e3" />
+
 ```cpp
 #include <iostream>
 
