@@ -1,0 +1,11 @@
+[package]
+name = "quilibrium-sdk"
+version = "1.0.1"
+edition = "2021"
+description = "Rust binding for the Quilibrium C++ SDK stable C ABI"
+license = "SEE LICENSE-NOTICE.md"
+build = "build.rs"
+
+[lib]
+name = "quilibrium_sdk"
+path = "src/lib.rs"

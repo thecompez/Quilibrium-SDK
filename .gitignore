@@ -1,0 +1,102 @@
+# Build output
+/build/
+/out/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/Testing/
+.qtcreator
+
+# CMake generated files
+compile_commands.json
+CTestTestfile.cmake
+DartConfiguration.tcl
+install_manifest.txt
+
+# Compiled module / object artifacts
+*.pcm
+*.ifc
+*.o
+*.a
+*.obj
+*.so
+*.dylib
+*.dll
+*.lib
+*.exe
+*.pdb
+
+# C++ / compiler temporary artifacts
+*.ii
+*.s
+*.d
+*.mod
+*.gcm
+*.gcno
+*.gcda
+*.profraw
+*.profdata
+
+# MCP / Node tooling
+/.codex/
+/.freebuff/
+/mcp/node_modules/
+/mcp/dist/
+/mcp/build/
+/mcp/.cache/
+/mcp/.npm/
+/mcp/.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tooling
+.cache/
+.ccls-cache/
+.clangd/
+.clang-tidy-cache/
+.ninja_deps
+.ninja_log
+rules.ninja
+build.ninja
+
+# Logs
+*.log
+logs/
+
+# Local demo runtime (SQLite database, uploaded media, smoke temp files).
+# Covered by /build/ above; listed explicitly so the runtime state is never
+# committed even if the demo root moves.
+/build/demo/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/apps/tegra-demo/media/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~

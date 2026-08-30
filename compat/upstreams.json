@@ -1,0 +1,22 @@
+{
+  "captured_at": "2026-08-30",
+  "note": "Connector-visible commits used for the initial compatibility baseline; revalidate before release.",
+  "upstreams": {
+    "QuilibriumNetwork/monorepo": {
+      "branch": "develop",
+      "commit": "62b60eeabf3dee7a992c33b0a248d2df9ba9fc73"
+    },
+    "QuilibriumNetwork/docs": {
+      "branch": "main",
+      "commit": "f5a1d89bfe684f2ce9eb31549cbb716469ab63f1"
+    },
+    "QuilibriumNetwork/qkms-sdk": {
+      "branch": "master",
+      "commit": "51b6eecda82c1508181627ce8197e48f0176c352"
+    },
+    "farcasterorg/hypersnap-docs-web": {
+      "branch": "master",
+      "commit": "85fb17b4212fdb9a28ea1f01d656b6eed1d7b4ae"
+    }
+  }
+}

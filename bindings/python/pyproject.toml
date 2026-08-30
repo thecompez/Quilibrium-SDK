@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quilibrium-cpp-sdk"
+version = "1.0.1"
+description = "Python binding for the Quilibrium C++ SDK"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["quilibrium_sdk"]

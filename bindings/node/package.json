@@ -1,0 +1,10 @@
+{
+  "name": "@quilibrium/cpp-sdk",
+  "version": "1.0.1",
+  "description": "Node.js FFI binding for the Quilibrium C++ SDK",
+  "main": "index.cjs",
+  "type": "commonjs",
+  "dependencies": {
+    "koffi": "^2.12.0"
+  }
+}
