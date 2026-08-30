@@ -95,3 +95,18 @@ ctypes        FFI        Koffi       P/Invoke
 ```
 
 The C ABI owns all buffers it returns and provides explicit response/error free functions. Language wrappers copy response data into language-owned memory before releasing native buffers.
+
+
+## Presigned QStorage data path
+
+SigV4 query presigning is intentionally split across three layers:
+
+```text
+quilibrium.sigv4       generic canonical request + query authentication
+        ↓
+quilibrium.qstorage    S3/QStorage object paths and signed Content-Type contract
+        ↓
+quilibrium.sdk         storage().presign_put/get/head facade
+```
+
+This allows trusted services to issue short-lived object capabilities while untrusted browser, desktop, or mobile clients transfer object bytes directly to QStorage. Credentials remain owned by the trusted signer/client configuration and do not cross into the distributed client.

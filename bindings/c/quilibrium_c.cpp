@@ -37,7 +37,7 @@ void add_endpoint(std::vector<quilibrium::endpoint>& target,const char* text) {
 }
 
 extern "C" {
-const char* ql_version(void){return "1.0.1";}
+const char* ql_version(void){return "1.1.0";}
 
 ql_sdk* ql_sdk_create(const ql_sdk_config* input,ql_error* error) {
     if(error) *error={};

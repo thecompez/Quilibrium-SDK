@@ -111,7 +111,8 @@ struct sdk_state final {
           kms(std::move(config.qkms_endpoints)),
           protocol(std::move(config.protocol_endpoints)),
           storage_credentials(std::move(config.qstorage_credentials)),
-          kms_credentials(std::move(config.qkms_credentials)) {}
+          kms_credentials(std::move(config.qkms_credentials)),
+          storage_region(std::move(config.qstorage_region)) {}
 };
 
 sdk_state* state_cast(void* value) noexcept { return static_cast<sdk_state*>(value); }
@@ -312,6 +313,15 @@ void release_state(void* value) noexcept {
     return {.status_code=response.status_code,.headers=std::move(response.header_fields),.body=std::move(response.body)};
 }
 
+[[nodiscard]] result<presigned_url> to_presigned_url(result<auth::presigned_request> value) {
+    if (!value) return std::unexpected(value.error());
+    return presigned_url{
+        .url=std::move(value->url),
+        .required_headers=std::move(value->required_headers),
+        .expires_at=value->expires_at
+    };
+}
+
 [[nodiscard]] std::string storage_path(std::string_view bucket,std::string_view key={}) {
     std::string path="/";
     path+=percent_encode(bucket);
@@ -490,6 +500,106 @@ task<result<service_response>> storage_api::remove(std::string bucket,std::strin
     auto response=send_with_failover(*state,state->storage,http_method::del,storage_path(bucket,key),{},{},options,&state->storage_credentials,state->storage_region,"s3");
     if (!response) co_return std::unexpected(response.error());
     co_return convert(std::move(*response));
+}
+
+result<presigned_url> storage_api::presign_put(
+    std::string bucket,
+    std::string key,
+    std::string content_type,
+    std::chrono::seconds expires) const {
+    auto* state=state_cast(state_);
+    if (!state) {
+        return std::unexpected(error{.domain=error_domain::configuration,.code=844,.message="SDK state is unavailable"});
+    }
+    if (!state->storage_credentials) {
+        return std::unexpected(error{.domain=error_domain::authentication,.code=703,.message="service credentials are not configured"});
+    }
+    auto selected=state->storage.select();
+    if (!selected) return std::unexpected(selected.error());
+    const auto& credentials=*state->storage_credentials;
+    auth::sigv4_signer signer(
+        auth::sigv4_credentials{
+            .access_key_id=credentials.access_key_id,
+            .secret_access_key=credentials.secret_access_key,
+            .session_token=credentials.session_token
+        },
+        state->storage_region,
+        "s3");
+    http_headers headers;
+    auth::presign_options options{.expires=expires};
+    if (!content_type.empty()) {
+        headers.emplace("content-type",std::move(content_type));
+        options.signed_headers.emplace_back("content-type");
+    }
+    return to_presigned_url(signer.presign(http_request{
+        .verb=http_method::put,
+        .target_endpoint=*selected,
+        .target=storage_path(bucket,key),
+        .header_fields=std::move(headers),
+        .body={}
+    },std::move(options)));
+}
+
+result<presigned_url> storage_api::presign_get(
+    std::string bucket,
+    std::string key,
+    std::chrono::seconds expires) const {
+    auto* state=state_cast(state_);
+    if (!state) {
+        return std::unexpected(error{.domain=error_domain::configuration,.code=845,.message="SDK state is unavailable"});
+    }
+    if (!state->storage_credentials) {
+        return std::unexpected(error{.domain=error_domain::authentication,.code=703,.message="service credentials are not configured"});
+    }
+    auto selected=state->storage.select();
+    if (!selected) return std::unexpected(selected.error());
+    const auto& credentials=*state->storage_credentials;
+    auth::sigv4_signer signer(
+        auth::sigv4_credentials{
+            .access_key_id=credentials.access_key_id,
+            .secret_access_key=credentials.secret_access_key,
+            .session_token=credentials.session_token
+        },
+        state->storage_region,
+        "s3");
+    return to_presigned_url(signer.presign(http_request{
+        .verb=http_method::get,
+        .target_endpoint=*selected,
+        .target=storage_path(bucket,key),
+        .header_fields={},
+        .body={}
+    },auth::presign_options{.expires=expires}));
+}
+
+result<presigned_url> storage_api::presign_head(
+    std::string bucket,
+    std::string key,
+    std::chrono::seconds expires) const {
+    auto* state=state_cast(state_);
+    if (!state) {
+        return std::unexpected(error{.domain=error_domain::configuration,.code=846,.message="SDK state is unavailable"});
+    }
+    if (!state->storage_credentials) {
+        return std::unexpected(error{.domain=error_domain::authentication,.code=703,.message="service credentials are not configured"});
+    }
+    auto selected=state->storage.select();
+    if (!selected) return std::unexpected(selected.error());
+    const auto& credentials=*state->storage_credentials;
+    auth::sigv4_signer signer(
+        auth::sigv4_credentials{
+            .access_key_id=credentials.access_key_id,
+            .secret_access_key=credentials.secret_access_key,
+            .session_token=credentials.session_token
+        },
+        state->storage_region,
+        "s3");
+    return to_presigned_url(signer.presign(http_request{
+        .verb=http_method::head,
+        .target_endpoint=*selected,
+        .target=storage_path(bucket,key),
+        .header_fields={},
+        .body={}
+    },auth::presign_options{.expires=expires}));
 }
 
 task<result<service_response>> storage_api::create_multipart_upload(std::string bucket,std::string key,std::string content_type,call_options options) const {

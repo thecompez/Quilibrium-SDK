@@ -122,7 +122,6 @@ std::string as_string(byte_view data) {
 std::string percent_encode(std::string_view text, bool preserve_slash) {
     static constexpr char digits[] = "0123456789ABCDEF";
     std::string out;
-    out.reserve(text.size());
     for (const char ch : text) {
         const auto c = static_cast<unsigned char>(ch);
         const bool unreserved = std::isalnum(c) != 0 || c == '-' || c == '_' || c == '.' || c == '~' || (preserve_slash && c == '/');

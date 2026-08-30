@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.30)
-project(quilibrium_cpp_sdk VERSION 1.0.1 LANGUAGES C CXX)
+project(quilibrium_cpp_sdk VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ option(QUILIBRIUM_BUILD_TESTS "Build SDK tests" ON)
 option(QUILIBRIUM_BUILD_EXAMPLES "Build SDK examples" ON)
 option(QUILIBRIUM_BUILD_C_API "Build stable C ABI shared library" ON)
 option(QUILIBRIUM_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+option(QUILIBRIUM_ENABLE_LIVE_TESTS "Enable credentialed live network integration tests" OFF)
 
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
 find_package(PkgConfig REQUIRED)
@@ -110,6 +111,9 @@ if(QUILIBRIUM_BUILD_EXAMPLES)
   add_executable(quilibrium_qstorage_example examples/qstorage.cpp)
   target_link_libraries(quilibrium_qstorage_example PRIVATE Quilibrium::SDK)
 
+  add_executable(quilibrium_qstorage_presign_example examples/qstorage_presign.cpp)
+  target_link_libraries(quilibrium_qstorage_presign_example PRIVATE Quilibrium::SDK)
+
   add_executable(quilibrium_qkms_example examples/qkms.cpp)
   target_link_libraries(quilibrium_qkms_example PRIVATE Quilibrium::SDK)
 
@@ -135,6 +139,23 @@ if(QUILIBRIUM_BUILD_TESTS)
   target_link_libraries(quilibrium_service_tests PRIVATE Quilibrium::SDK)
   add_test(NAME quilibrium_service_tests COMMAND quilibrium_service_tests)
 
+  add_executable(quilibrium_presign_tests tests/presign_tests.cpp)
+  target_link_libraries(quilibrium_presign_tests PRIVATE Quilibrium::SDK)
+  # GCC 14 Modules TS has an optimizer ICE in ipa-comdats when this large
+  # deterministic module-consumer test is compiled at Release -O3. Keep the
+  # SDK itself fully optimized; lower only this test target to -O1.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+    target_compile_options(quilibrium_presign_tests PRIVATE -O1)
+  endif()
+  add_test(NAME quilibrium_presign_tests COMMAND quilibrium_presign_tests)
+
+  add_executable(quilibrium_qstorage_presign_live_tests tests/qstorage_presign_live.cpp)
+  target_link_libraries(quilibrium_qstorage_presign_live_tests PRIVATE Quilibrium::SDK)
+  if(QUILIBRIUM_ENABLE_LIVE_TESTS)
+    add_test(NAME quilibrium_qstorage_presign_live_tests COMMAND quilibrium_qstorage_presign_live_tests)
+    set_tests_properties(quilibrium_qstorage_presign_live_tests PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
+
   if(QUILIBRIUM_BUILD_C_API)
     add_executable(quilibrium_c_api_tests tests/c_api_tests.c)
     target_link_libraries(quilibrium_c_api_tests PRIVATE Quilibrium::C)
@@ -146,7 +167,7 @@ if(QUILIBRIUM_BUILD_TESTS)
         COMMAND ${CMAKE_COMMAND} -E env
           QUILIBRIUM_SDK_LIB=$<TARGET_FILE:quilibrium_c>
           PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/bindings/python
-          ${Python3_EXECUTABLE} -c "from quilibrium_sdk import SDK, version; assert version() == '1.0.1'; q=SDK(); q.close()")
+          ${Python3_EXECUTABLE} -c "from quilibrium_sdk import SDK, version; assert version() == '1.1.0'; q=SDK(); q.close()")
     endif()
   endif()
 endif()

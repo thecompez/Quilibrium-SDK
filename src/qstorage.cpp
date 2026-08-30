@@ -2,6 +2,7 @@ module;
 #include <algorithm>
 #include <chrono>
 #include <coroutine>
+#include <cstdint>
 #include <expected>
 #include <memory>
 #include <string>
@@ -38,6 +39,7 @@ struct client::impl final {
           transport(std::move(t)) {}
 };
 
+client::client(config c):impl_(std::make_unique<impl>(std::move(c),http_transport_ptr{})){}
 client::client(config c,http_transport_ptr t):impl_(std::make_unique<impl>(std::move(c),std::move(t))){}
 client::~client()=default;
 client::client(client&&) noexcept=default;
@@ -66,6 +68,60 @@ task<result<raw_response>> client::execute(http_method verb,std::string target,h
         }
     }
     co_return std::unexpected(last_error);
+}
+
+result<auth::presigned_request> client::presign(
+    http_method verb,
+    std::string target,
+    http_headers headers,
+    auth::presign_options options,
+    std::chrono::system_clock::time_point now) const {
+    if (impl_->endpoints.empty()) {
+        return std::unexpected(error{
+            .domain=error_domain::configuration,
+            .code=303,
+            .message="QStorage endpoint list is empty"
+        });
+    }
+    http_request request{
+        .verb=verb,
+        .target_endpoint=impl_->endpoints.front(),
+        .target=std::move(target),
+        .header_fields=std::move(headers),
+        .body={}
+    };
+    return impl_->signer.presign(std::move(request),std::move(options),now);
+}
+
+result<auth::presigned_request> client::presign_put_object(
+    std::string bucket,
+    std::string key,
+    std::string content_type,
+    std::chrono::seconds expires,
+    std::chrono::system_clock::time_point now) const {
+    http_headers headers;
+    auth::presign_options options{.expires=expires};
+    if (!content_type.empty()) {
+        headers.emplace("content-type",std::move(content_type));
+        options.signed_headers.emplace_back("content-type");
+    }
+    return presign(http_method::put,path_for(bucket,key),std::move(headers),std::move(options),now);
+}
+
+result<auth::presigned_request> client::presign_get_object(
+    std::string bucket,
+    std::string key,
+    std::chrono::seconds expires,
+    std::chrono::system_clock::time_point now) const {
+    return presign(http_method::get,path_for(bucket,key),{},auth::presign_options{.expires=expires},now);
+}
+
+result<auth::presigned_request> client::presign_head_object(
+    std::string bucket,
+    std::string key,
+    std::chrono::seconds expires,
+    std::chrono::system_clock::time_point now) const {
+    return presign(http_method::head,path_for(bucket,key),{},auth::presign_options{.expires=expires},now);
 }
 
 task<result<raw_response>> client::create_bucket(std::string b,call_options o){co_return sync_wait(execute(http_method::put,path_for(b),{},{},o));}

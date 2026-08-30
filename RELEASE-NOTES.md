@@ -1,22 +1,46 @@
-# Quilibrium C++ SDK v1.0.1
+# Quilibrium C++ SDK v1.1.0
 
-## Portability fix
+## SigV4 presigned URLs
 
-This patch fixes Clang/Apple Clang C++23 module builds where the JSON implementation unit relied on standard-library declarations that were visible transitively under GCC but not guaranteed to be visible in a module implementation unit. `src/json.cpp` now explicitly includes `<variant>`, `<optional>`, `<map>`, and `<vector>`.
+This release adds production-grade AWS Signature Version 4 query presigning as a generic SDK capability, with first-class QStorage support.
 
-The patch also removes signedness-conversion warnings in JSON escaping, URL percent encoding, and SigV4 whitespace normalization.
+### Generic `quilibrium.sigv4`
 
-For GCC 14 Modules TS, `QUILIBRIUM_WARNINGS_AS_ERRORS=ON` now keeps SDK warnings fatal while exempting GCC's known compiler-internal `-Wattributes` BMI diagnostic from being promoted to an error.
+- Added `auth::presign_options`.
+- Added `auth::presigned_request` containing the final URL, caller-required signed headers, and expiration time.
+- Added `sigv4_signer::presign(http_request, ...)` without changing the existing header-based `sign(http_request&)` API.
+- Added expiration validation for the SigV4 1..604800-second range.
+- Added S3-compatible `UNSIGNED-PAYLOAD` support and an explicit payload-mode extension point.
+- Added canonical URI/query handling, existing/duplicate query preservation, empty subresources, UTF-8/reserved path encoding, session tokens, signed-header normalization, and conflicting `X-Amz-*` query rejection.
 
-## Validation
+### QStorage
 
-- Full GNU GCC 14.2 build: passed.
-- CTest: 6/6 passed.
-- Clang 17: every public module interface was manually precompiled and every SDK implementation unit was compiled with `-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror`; passed.
-- The exact `json.cpp` failure reported with Clang (`std::holds_alternative`, `std::get_if`, and `std::optional` not visible) is fixed.
+- Added `qstorage::client::presign_put_object()`.
+- Added `qstorage::client::presign_get_object()`.
+- Added `qstorage::client::presign_head_object()`.
+- Added generic `qstorage::client::presign()` for arbitrary S3-compatible targets and future multipart presigning.
+- Added a presign-only `qstorage::client(config)` constructor that does not require an HTTP transport.
+- PUT Content-Type can be signed and is returned in `required_headers`.
+- QStorage signing region is explicitly configurable.
 
-## SDK surface
+### High-level SDK facade
 
-The release retains the v1.0 API: high-level `quilibrium::sdk`, HyperSnap reads, QStorage/S3-compatible operations and multipart upload, QKMS/TrentService operations, native unary gRPC framing and service registry, C ABI, Python/Rust/Node/.NET bindings, installable CMake package, and Qt/Mini App examples.
+- Added `storage().presign_put()`.
+- Added `storage().presign_get()`.
+- Added `storage().presign_head()`.
+- Added `sdk_config::qstorage_region` while preserving existing authenticated storage operations.
 
-Streaming native RPCs remain registry/extension points; the built-in native transport is unary gRPC.
+### Tests and examples
+
+- Added deterministic SigV4 presigning tests including the official AWS S3 query-auth vector.
+- Added coverage for expiration, query sorting, duplicate parameters, UTF-8/reserved keys, session tokens, signed Content-Type, missing credentials, region configuration, and multipart-compatible query strings.
+- Added `quilibrium_qstorage_presign_example`.
+- Added optional credentialed QStorage PUT/GET/HEAD live integration test behind `QUILIBRIUM_ENABLE_LIVE_TESTS`.
+
+### Portability
+
+- Preserved the C++23 named-module architecture and install/export package.
+- Implementation units explicitly include the standard-library declarations they use.
+- Removed an unnecessary `std::string::reserve()` from `percent_encode()` after ASan exposed a GCC Modules TS sized-delete mismatch with long encoded paths in the validation environment.
+
+Existing `sign()`, `storage().put()`, `storage().get()`, `storage().remove()`, `find_package(Quilibrium CONFIG REQUIRED)`, `Quilibrium::SDK`, and `import quilibrium;` usage remains source-compatible.

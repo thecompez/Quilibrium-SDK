@@ -1,4 +1,5 @@
 module;
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -29,6 +30,8 @@ struct sdk_config final {
     std::vector<endpoint> protocol_endpoints{};
     std::optional<sdk_credentials> qstorage_credentials{};
     std::optional<sdk_credentials> qkms_credentials{};
+    /** SigV4 region used for QStorage. Override when your deployment specifies another region. */
+    std::string qstorage_region{"q"};
     http_transport_ptr http{};
     bool verify_tls{true};
     std::string user_agent{"quilibrium-cpp-sdk/1.0"};
@@ -38,6 +41,13 @@ struct service_response final {
     std::int32_t status_code{};
     http_headers headers{};
     bytes body{};
+};
+
+/** Temporary URL plus any headers that the caller must send with it. */
+struct presigned_url final {
+    std::string url{};
+    http_headers required_headers{};
+    std::chrono::system_clock::time_point expires_at{};
 };
 
 struct farcaster_user final {
@@ -147,6 +157,22 @@ public:
     [[nodiscard]] task<result<service_response>> put(std::string bucket,std::string key,bytes data,std::string content_type="application/octet-stream",call_options options={}) const;
     [[nodiscard]] task<result<service_response>> get(std::string bucket,std::string key,call_options options={}) const;
     [[nodiscard]] task<result<service_response>> remove(std::string bucket,std::string key,call_options options={}) const;
+    /** Generates a temporary direct-upload URL. A supplied Content-Type is signed and required. */
+    [[nodiscard]] result<presigned_url> presign_put(
+        std::string bucket,
+        std::string key,
+        std::string content_type = {},
+        std::chrono::seconds expires = std::chrono::minutes{15}) const;
+    /** Generates a temporary direct-download URL. */
+    [[nodiscard]] result<presigned_url> presign_get(
+        std::string bucket,
+        std::string key,
+        std::chrono::seconds expires = std::chrono::minutes{15}) const;
+    /** Generates a temporary URL for an object HEAD request. */
+    [[nodiscard]] result<presigned_url> presign_head(
+        std::string bucket,
+        std::string key,
+        std::chrono::seconds expires = std::chrono::minutes{15}) const;
     [[nodiscard]] task<result<service_response>> create_multipart_upload(std::string bucket,std::string key,std::string content_type="application/octet-stream",call_options options={}) const;
     [[nodiscard]] task<result<service_response>> upload_part(std::string bucket,std::string key,std::string upload_id,std::uint32_t part_number,bytes data,call_options options={}) const;
     [[nodiscard]] task<result<service_response>> complete_multipart_upload(std::string bucket,std::string key,std::string upload_id,bytes completion_xml,call_options options={}) const;
