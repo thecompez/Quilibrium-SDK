@@ -24,11 +24,12 @@ namespace {
 
 [[nodiscard]] bool parse_floating_point(std::string_view token, double& number)
 {
-#if defined(QUILIBRIUM_PLATFORM_APPLE)
-    // libc++ currently marks floating-point std::from_chars as unavailable for
-    // deployment targets older than macOS 26. Use the classic C locale through
-    // a stream on Apple platforms so JSON parsing remains compatible with older
-    // supported macOS releases while preserving locale-independent '.' syntax.
+#if defined(QUILIBRIUM_PLATFORM_APPLE) || defined(_LIBCPP_VERSION)
+    // Some libc++ versions either do not implement floating-point std::from_chars
+    // yet (for example libc++ 18 on Ubuntu) or gate it behind newer Apple
+    // deployment targets. Use the classic C locale through a stream for libc++
+    // so JSON parsing stays portable while preserving locale-independent '.'
+    // syntax. libstdc++ keeps the faster std::from_chars path below.
     std::istringstream stream{std::string{token}};
     stream.imbue(std::locale::classic());
     stream >> std::noskipws >> number;
