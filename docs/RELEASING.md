@@ -39,7 +39,7 @@ The C++ SDK requires:
 - OpenSSL 3
 - libcurl
 
-Linux and macOS CI use native development packages. Windows CI uses vcpkg with static dependency triplets so the exported C ABI DLL does not require separate vcpkg OpenSSL/curl DLL deployment.
+Linux CI uses Clang 18 with native OpenSSL/libcurl development packages. GCC 14 Modules TS is intentionally not used for release validation because the current toolchain exhibits architecture-specific runtime failures and installed-module consumer instability. macOS uses Homebrew LLVM together with Homebrew OpenSSL and curl to keep the C/C++ header search order consistent. Windows CI uses vcpkg with static dependency triplets so the exported C ABI DLL does not require separate vcpkg OpenSSL/curl DLL deployment.
 
 The installed CMake package intentionally declares OpenSSL and CURL as dependencies because C++ consumers link the static `Quilibrium::SDK` target.
 
@@ -139,7 +139,7 @@ On Windows the C ABI import library is installed into `lib/` and the DLL into `b
 
 ## Consuming the C++ package
 
-After extracting or installing the package, point CMake at the installation prefix:
+After extracting or installing the package on a toolchain/generator with imported C++ module support, point CMake at the installation prefix:
 
 ```bash
 cmake \
@@ -160,6 +160,12 @@ import quilibrium;
 ```
 
 OpenSSL 3 and CURL development packages must also be discoverable by the consumer toolchain.
+
+### Windows C++ module package note
+
+The SDK itself is built and tested with MSVC on both Windows x64 and ARM64. However, CMake 4.4 still rejects imported C++ module targets that require BMI-only synthesis when using the Visual Studio generator. This is a CMake generator limitation rather than an SDK compile failure. Windows release validation therefore verifies the complete native MSVC build and test suite, the installed static/shared libraries, the C ABI at runtime, and the presence of every installed `.cppm` interface. The stable C ABI and language wrappers remain directly consumable on Windows.
+
+Until CMake's Visual Studio generator supports this imported-module path, Windows users who need `import quilibrium;` from a preinstalled package should use a generator/toolchain combination that supports imported C++ module synthesis, or build the SDK as part of the source tree.
 
 ## Consuming the stable C ABI
 
