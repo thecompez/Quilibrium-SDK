@@ -1,361 +1,611 @@
 # Quilibrium C++ SDK
 
-A modern **C++23 SDK for the Quilibrium ecosystem**, providing a unified native interface for HyperSnap, QStorage, QKMS, Quilibrium protocol RPCs, multi-peer routing, and cross-language integrations.
+A modern **C++23 SDK for the Quilibrium ecosystem** with native C++ modules, coroutine-aware APIs, explicit error handling, multi-peer routing, and cross-language bindings.
 
 <img width="1672" height="941" alt="Quilibrium C++ SDK" src="https://github.com/user-attachments/assets/a38f6ae1-1b0b-4041-be36-9ad92367d9e3" />
 
+The SDK provides a unified interface for:
+
+* **HyperSnap** — Farcaster users, casts, feeds, conversations, search, reactions, follows, notifications, and raw access.
+* **QStorage** — authenticated S3-compatible storage, multipart transfers, and SigV4 presigned URLs.
+* **QKMS** — key management, encryption, signing, verification, policies, aliases, grants, rotation, and related operations.
+* **Quilibrium protocol RPC** — native unary gRPC framing and protocol service dispatch.
+* **Multi-peer routing** — endpoint selection, retries, and failover.
+* **Cross-language integration** — stable C ABI with Python, Rust, Node.js, and .NET wrappers.
+* **C++23 modules** — applications normally need only `import quilibrium;`.
+
 Version: **1.1.0**
 
+## Modern C++ Quick Start
+
 ```cpp
-#include <iostream>
+#include <print>
 
 import quilibrium;
 
 int main()
 {
-    auto q = quilibrium::connect();
-    if (!q) {
-        std::cerr << q.error().message << '\n';
+    const auto sdk = quilibrium::connect();
+
+    if (!sdk) {
+        std::println("Unable to initialize Quilibrium SDK: {}",
+                     sdk.error().message);
         return 1;
     }
 
-    auto user = quilibrium::sync_wait(
-        q->hypersnap().users().get_by_fid(3)
+    const auto user = quilibrium::sync_wait(
+        sdk->hypersnap()
+            .users()
+            .get_by_fid(3)
     );
 
     if (!user) {
-        std::cerr << user.error().message << '\n';
+        std::println("HyperSnap request failed: {}",
+                     user.error().message);
         return 1;
     }
 
-    std::cout << user->display_name << " (@" << user->username << ")\n";
+    std::println(
+        "{} (@{}) — FID {}",
+        user->display_name,
+        user->username,
+        user->fid
+    );
 }
 ```
 
-## Overview
+The SDK uses explicit result types rather than exceptions for normal recoverable service failures:
 
-Quilibrium C++ SDK provides a single native interface for building applications on top of the Quilibrium ecosystem.
+```cpp
+quilibrium::result<T>
+```
 
-It is designed for native desktop applications, Qt/QML clients, Farcaster clients, Mini App backends, infrastructure services, wallets, developer tooling, and other C++ applications that need direct access to Quilibrium services.
+which is backed by C++23:
 
-The SDK keeps low-level transport, signing, routing, and protocol details behind higher-level APIs while retaining escape hatches for advanced use cases.
+```cpp
+std::expected<T, quilibrium::error>
+```
 
-## Features
-
-- **HyperSnap** — typed users, casts, conversations, feeds and raw API access.
-- **QStorage** — S3-compatible authenticated operations, multipart upload, and SigV4 presigned URLs.
-- **QKMS** — KMS-compatible key, crypto, policy, grant, alias, rotation and related operations.
-- **Native protocol RPC** — unary gRPC framing and service registry for Quilibrium protocol services.
-- **Multi-peer routing** — endpoint selection, retry and failover primitives.
-- **Cross-language ABI** — C bridge plus Python, Rust, Node.js and .NET bindings.
-- **C++23 modules** — public API through named modules, including the umbrella `quilibrium` module.
+This makes success and failure part of the type contract.
 
 ---
 
-# QStorage presigned URLs
+## Coroutine-native usage
 
-Version 1.1 adds production-grade **AWS Signature Version 4 query presigning** with first-class QStorage integration.
+SDK operations return lightweight `task<result<T>>` values and can be consumed directly through C++ coroutines.
 
-A presigned URL grants temporary access to one specific request without exposing the QStorage secret key to the caller. This is particularly useful for direct uploads and downloads from browsers, desktop clients, mobile apps, workers, or other untrusted/distributed clients.
+```cpp
+#include <print>
+
+import quilibrium;
+
+quilibrium::task<int> run()
+{
+    auto sdk = quilibrium::connect();
+
+    if (!sdk) {
+        std::println("Connection error: {}", sdk.error().message);
+        co_return 1;
+    }
+
+    const auto user = co_await sdk->hypersnap()
+        .users()
+        .get_by_fid(3);
+
+    if (!user) {
+        std::println("HyperSnap error: {}", user.error().message);
+        co_return 1;
+    }
+
+    std::println(
+        "Resolved @{} with FID {}",
+        user->username,
+        user->fid
+    );
+
+    co_return 0;
+}
+
+int main()
+{
+    return quilibrium::sync_wait(run());
+}
+```
+
+`sync_wait()` remains available for command-line programs, worker threads, tests, and environments where a synchronous composition boundary is more appropriate.
+
+---
+
+# HyperSnap
+
+HyperSnap provides typed access to Farcaster data while retaining a raw HTTP escape hatch.
+
+## Get a user
+
+```cpp
+const auto user = quilibrium::sync_wait(
+    sdk->hypersnap()
+        .users()
+        .get_by_username("compez.eth")
+);
+
+if (!user) {
+    std::println("Request failed: {}", user.error().message);
+    return 1;
+}
+
+std::println(
+    "{} — {} followers",
+    user->display_name,
+    user->follower_count
+);
+```
+
+## Trending feed
+
+```cpp
+const auto feed = quilibrium::sync_wait(
+    sdk->hypersnap()
+        .feeds()
+        .trending(20)
+);
+
+if (!feed) {
+    std::println("Unable to load feed: {}", feed.error().message);
+    return 1;
+}
+
+for (const auto& cast : feed->casts) {
+    std::println(
+        "@{}: {}",
+        cast.author.username,
+        cast.text
+    );
+}
+```
+
+## Search users
+
+```cpp
+const auto users = quilibrium::sync_wait(
+    sdk->hypersnap()
+        .users()
+        .search("quilibrium", 10)
+);
+
+if (!users) {
+    std::println("Search failed: {}", users.error().message);
+    return 1;
+}
+
+for (const auto& user : *users) {
+    std::println(
+        "{} (@{})",
+        user.display_name,
+        user.username
+    );
+}
+```
+
+## Raw HyperSnap access
+
+Typed APIs cover common operations, while new or specialized HyperSnap endpoints can be accessed without waiting for a new SDK release.
+
+```cpp
+const auto response = quilibrium::sync_wait(
+    sdk->hypersnap().get(
+        "/v2/farcaster/user",
+        {
+            {"fid", "3"}
+        }
+    )
+);
+
+if (!response) {
+    std::println("HyperSnap request failed: {}",
+                 response.error().message);
+    return 1;
+}
+
+std::println("HTTP {}", response->status_code);
+```
+
+---
+
+# QStorage
+
+QStorage provides authenticated S3-compatible operations as well as temporary SigV4 capabilities for untrusted clients.
+
+## Configure credentials
+
+```cpp
+quilibrium::sdk_config config {};
+
+config.qstorage_credentials = quilibrium::sdk_credentials {
+    .access_key_id = "YOUR_ACCESS_KEY",
+    .secret_access_key = "YOUR_SECRET_KEY"
+};
+
+config.qstorage_region = "q";
+
+auto sdk = quilibrium::connect(std::move(config));
+
+if (!sdk) {
+    std::println("SDK initialization failed: {}",
+                 sdk.error().message);
+    return 1;
+}
+```
+
+Secrets should only be configured inside trusted applications or services.
+
+Do not embed QStorage credentials inside browser bundles, distributed desktop applications, mobile applications, or Mini Apps.
+
+## Upload an object
+
+```cpp
+quilibrium::bytes data {
+    std::byte {'H'},
+    std::byte {'e'},
+    std::byte {'l'},
+    std::byte {'l'},
+    std::byte {'o'}
+};
+
+const auto uploaded = quilibrium::sync_wait(
+    sdk->storage().put(
+        "my-bucket",
+        "hello.txt",
+        std::move(data),
+        "text/plain"
+    )
+);
+
+if (!uploaded) {
+    std::println("Upload failed: {}", uploaded.error().message);
+    return 1;
+}
+
+std::println("Upload completed with HTTP {}",
+             uploaded->status_code);
+```
+
+## Download an object
+
+```cpp
+const auto downloaded = quilibrium::sync_wait(
+    sdk->storage().get(
+        "my-bucket",
+        "hello.txt"
+    )
+);
+
+if (!downloaded) {
+    std::println("Download failed: {}",
+                 downloaded.error().message);
+    return 1;
+}
+
+std::println(
+    "Received {} bytes",
+    downloaded->body.size()
+);
+```
+
+---
+
+# QStorage Presigned URLs
+
+Presigned URLs allow an untrusted client to perform one specific QStorage operation without receiving the secret key.
 
 ```text
 Client
-   │ request temporary upload authorization
-   ▼
-Trusted backend using Quilibrium SDK
    │
+   │ Request temporary authorization
+   ▼
+Trusted application / backend
+   │
+   │ Quilibrium SDK
    ▼
 presign_put(...)
    │
    ▼
-Temporary SigV4 URL + required headers
+Temporary URL + required signed headers
    │
    ▼
-Client ───────────────────────────────► QStorage
-             direct object upload
+Client ─────────────────────────────► QStorage
+             Direct upload
 ```
 
-The object bytes do **not** need to pass through the trusted backend.
-
-> **Security:** QStorage access keys and secret keys must never be embedded in distributed desktop, mobile, or browser applications. Generate presigned URLs only in a trusted service or another protected execution environment.
+The payload does not need to pass through your backend.
 
 ## Presigned PUT
 
 ```cpp
 #include <chrono>
-#include <iostream>
+#include <print>
 
 import quilibrium;
 
 int main()
 {
-    quilibrium::sdk_config config{};
+    quilibrium::sdk_config config {};
+
     config.qstorage_credentials = {
         .access_key_id = "YOUR_ACCESS_KEY",
         .secret_access_key = "YOUR_SECRET_KEY"
     };
 
-    // Explicitly configurable. Keep this aligned with your QStorage account/service configuration.
     config.qstorage_region = "q";
 
-    auto q = quilibrium::connect(std::move(config));
-    if (!q) {
-        std::cerr << q.error().message << '\n';
+    auto sdk = quilibrium::connect(std::move(config));
+
+    if (!sdk) {
+        std::println(
+            "SDK initialization failed: {}",
+            sdk.error().message
+        );
+
         return 1;
     }
 
-    auto upload = q->storage().presign_put(
+    const auto upload = sdk->storage().presign_put(
         "my-bucket",
         "uploads/image.jpg",
         "image/jpeg",
-        std::chrono::minutes{15}
+        std::chrono::minutes {15}
     );
 
     if (!upload) {
-        std::cerr << upload.error().message << '\n';
+        std::println(
+            "Unable to create presigned URL: {}",
+            upload.error().message
+        );
+
         return 1;
     }
 
-    std::cout << upload->url << '\n';
+    std::println("PUT {}", upload->url);
 
     for (const auto& [name, value] : upload->required_headers) {
-        std::cout << name << ": " << value << '\n';
+        std::println("{}: {}", name, value);
     }
 }
 ```
 
-When a content type is supplied to `presign_put()`, it is cryptographically bound to the signature and is returned in `required_headers`.
-The client must send the exact header value when using the URL.
-For example:
+When `Content-Type` is supplied, it becomes part of the signature contract.
+
+The client must send exactly the required value:
 
 ```text
 content-type: image/jpeg
 ```
 
-Changing or omitting a signed header causes the remote service to reject the request with a signature mismatch.
+Changing or omitting a signed header invalidates the request.
 
 ## Presigned GET
 
 ```cpp
-auto download = q->storage().presign_get(
+const auto download = sdk->storage().presign_get(
     "my-bucket",
     "uploads/image.jpg",
-    std::chrono::minutes{15}
+    std::chrono::minutes {15}
 );
 
-if (download) {
-    std::cout << download->url << '\n';
+if (!download) {
+    std::println(
+        "Unable to create download URL: {}",
+        download.error().message
+    );
+
+    return 1;
 }
+
+std::println("GET {}", download->url);
 ```
 
 ## Presigned HEAD
 
 ```cpp
-auto metadata = q->storage().presign_head(
+const auto metadata = sdk->storage().presign_head(
     "my-bucket",
     "uploads/image.jpg",
-    std::chrono::minutes{5}
+    std::chrono::minutes {5}
 );
 ```
 
-## Expiration
-
-SigV4 presigned URLs accept expirations from **1 second through 7 days (604800 seconds)**.
-Zero, negative, and longer durations are rejected instead of being silently clamped.
-
-```cpp
-auto result = q->storage().presign_get(
-    "my-bucket",
-    "object.bin",
-    std::chrono::hours{1}
-);
-```
-
-## Session credentials
-
-Generic SigV4 presigning supports temporary credentials.
-When a `session_token` is configured, the signer adds `X-Amz-Security-Token` to the canonical query string and final URL.
-The secret access key is never included in the URL.
-
-## Generic SigV4 presigning
-
-Presigning itself is generic and is not tied to QStorage:
-
-```cpp
-import quilibrium.core;
-import quilibrium.sigv4;
-
-quilibrium::auth::sigv4_signer signer{
-    {
-        .access_key_id = "AKID",
-        .secret_access_key = "SECRET"
-    },
-    "us-east-1",
-    "s3"
-};
-
-quilibrium::http_request request{
-    .verb = quilibrium::http_method::get,
-    .target_endpoint = {
-        .scheme = "https",
-        .host = "storage.example.com",
-        .port = 443
-    },
-    .target = "/bucket/object.txt?versionId=123"
-};
-
-auto presigned = signer.presign(
-    std::move(request),
-    {.expires = std::chrono::minutes{10}}
-);
-```
-
-`auth::presigned_request` contains:
-
-```cpp
-std::string url;
-quilibrium::http_headers required_headers;
-std::chrono::system_clock::time_point expires_at;
-```
-
-The generic implementation preserves arbitrary existing query parameters, including duplicate keys and empty S3 subresources. This makes it suitable for later multipart-presigning APIs such as `?uploads` and `?partNumber=1&uploadId=...` without redesigning the signer.
-
-QStorage also exposes a low-level extension point:
-
-```cpp
-quilibrium::qstorage::client storage{configuration};
-
-auto part = storage.presign(
-    quilibrium::http_method::put,
-    "/bucket/large.bin?partNumber=1&uploadId=...",
-    {},
-    {.expires = std::chrono::minutes{10}}
-);
-```
-
-## QStorage signing region
-
-The QStorage signing region is configurable through both `qstorage::config::region` and `sdk_config::qstorage_region`.
-The historical SDK default (`q`) is retained for source compatibility, but applications should configure the value expected by their current QStorage deployment/account rather than assuming a region string universally.
+SigV4 presigned URL expiration may range from **1 second to 7 days**.
 
 ---
 
-## HyperSnap
+# QKMS
 
-Typed access to Farcaster data exposed through HyperSnap:
-
-```cpp
-auto feed = quilibrium::sync_wait(
-    q->hypersnap().feeds().trending(20)
-);
-```
-
-Supported areas include users, casts, conversations, feeds, search, channels, reactions, follows, notifications, and raw HyperSnap reads.
-
----
-
-## QStorage authenticated operations
-
-Existing authenticated APIs remain unchanged:
+QKMS operations use the same explicit `task<result<T>>` model.
 
 ```cpp
-auto uploaded = quilibrium::sync_wait(
-    q->storage().put(
-        "my-bucket",
-        "hello.txt",
-        data,
-        "text/plain"
-    )
-);
-
-auto downloaded = quilibrium::sync_wait(
-    q->storage().get("my-bucket", "hello.txt")
-);
-
-auto removed = quilibrium::sync_wait(
-    q->storage().remove("my-bucket", "hello.txt")
-);
-```
-
-The low-level QStorage client also supports bucket/object operations, copy/head/list, multipart create/upload/complete/abort/list operations, and a raw signed `execute()` escape hatch for S3-compatible subresources.
-
----
-
-## QKMS
-
-```cpp
-auto response = quilibrium::sync_wait(
-    q->kms().describe_key(
+const auto response = quilibrium::sync_wait(
+    sdk->kms().describe_key(
         R"({"KeyId":"YOUR_KEY_ID"})"
     )
 );
+
+if (!response) {
+    std::println(
+        "QKMS request failed: {}",
+        response.error().message
+    );
+
+    return 1;
+}
+
+std::println(
+    "QKMS returned HTTP {}",
+    response->status_code
+);
 ```
 
-The QKMS surface includes key creation/description/listing, enable/disable, encrypt/decrypt, sign/verify, data keys, MAC operations, shared-secret derivation, public key retrieval, imported key material, policies, aliases, grants, tags, rotation, replication and scheduled deletion.
+The high-level API covers operations including:
+
+* key creation and description
+* encryption and decryption
+* signing and verification
+* data-key generation
+* MAC operations
+* shared-secret derivation
+* public-key retrieval
+* imported key material
+* key policies
+* aliases
+* grants
+* tags
+* rotation
+* replication
+* scheduled deletion
+
+The generic `invoke()` API remains available for compatible QKMS operations that do not yet have a dedicated facade function.
 
 ---
 
-## Native Quilibrium protocol
+# Native Quilibrium Protocol
+
+The SDK can issue raw-protobuf unary calls against registered Quilibrium protocol services.
 
 ```cpp
-auto response = quilibrium::sync_wait(
-    q->native().call(
+const auto response = quilibrium::sync_wait(
+    sdk->native().call(
         quilibrium::native_service::node,
         "GetNodeInfo",
         {}
     )
 );
+
+if (!response) {
+    std::println(
+        "Protocol call failed: {}",
+        response.error().message
+    );
+
+    return 1;
+}
+
+std::println(
+    "Received {} protobuf bytes",
+    response->size()
+);
 ```
 
-The protocol registry includes NodeService, ConnectivityService, GlobalService, AppShardService, HypergraphComparisonService, KeyRegistryService, DispatchService, MixnetService, OnionService, PubSubProxy, DataIPCService and FerretProxy.
+Registered services include:
+
+* NodeService
+* ConnectivityService
+* GlobalService
+* AppShardService
+* HypergraphComparisonService
+* KeyRegistryService
+* DispatchService
+* MixnetService
+* OnionService
+* PubSubProxy
+* DataIPCService
+* FerretProxy
 
 ---
 
-## Architecture
+# Multi-peer Routing
+
+Applications can configure multiple service endpoints instead of depending on a single peer.
+
+```cpp
+quilibrium::sdk_config config {};
+
+config.hypersnap_endpoints = {
+    {
+        .scheme = "https",
+        .host = "haatz.quilibrium.com",
+        .port = 443
+    },
+    {
+        .scheme = "https",
+        .host = "another-peer.example",
+        .port = 443
+    }
+};
+
+const auto sdk = quilibrium::connect(
+    std::move(config)
+);
+```
+
+The routing layer provides primitives for endpoint selection, retries, and failover.
+
+Per-call behavior can also be controlled explicitly:
+
+```cpp
+quilibrium::call_options options {
+    .timeout = std::chrono::seconds {10},
+    .max_attempts = 3,
+    .allow_failover = true,
+    .idempotent = true
+};
+
+const auto feed = quilibrium::sync_wait(
+    sdk->hypersnap()
+        .feeds()
+        .trending(
+            20,
+            {},
+            options
+        )
+);
+```
+
+---
+
+# Architecture
 
 ```text
-                            Application
-                                │
-                                ▼
-                      ┌───────────────────┐
-                      │  quilibrium::sdk  │
-                      └─────────┬─────────┘
-                                │
-          ┌─────────────────────┼──────────────────────┐
-          │                     │                      │
-          ▼                     ▼                      ▼
-     HyperSnap              QStorage                 QKMS
-                                │
-                     ┌──────────┴──────────┐
-                     │                     │
-                     ▼                     ▼
-               Authenticated          Presigning
-                 SigV4                  SigV4
-                     │                     │
-                     ▼                     ▼
-              Backend requests       Temporary URLs
-                                           │
-                                           ▼
-                              Browser/Desktop/Mobile
-                                           │
-                                           └──────► QStorage
-
-                                │
-                                ▼
-                     Native Protocol RPC
-                                │
-                                ▼
-                         gRPC framing
-                                │
-                                ▼
-                        Protobuf payloads
+                           Application
+                               │
+                               ▼
+                     ┌───────────────────┐
+                     │  quilibrium::sdk  │
+                     └─────────┬─────────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         │                     │                     │
+         ▼                     ▼                     ▼
+    HyperSnap              QStorage                QKMS
+         │                     │                     │
+         │             ┌───────┴────────┐            │
+         │             │                │            │
+         │             ▼                ▼            │
+         │      Authenticated       Presigning       │
+         │          SigV4              SigV4         │
+         │                              │            │
+         │                              ▼            │
+         │                   Browser / Desktop       │
+         │                    Mobile / Worker        │
+         │                              │            │
+         │                              ▼            │
+         │                          QStorage          │
+         │                                           │
+         └──────────────────┬────────────────────────┘
+                            │
+                            ▼
+                  Native Protocol RPC
+                            │
+                            ▼
+                       gRPC framing
+                            │
+                            ▼
+                    Protobuf payloads
 ```
-
-The generic SigV4 implementation remains independent from QStorage path/object helpers, and the high-level storage facade does not expose signer internals.
 
 ---
 
-## Module layout
+# C++ Module Layout
+
+The SDK is implemented using project-owned C++ modules.
 
 ```text
 src/
@@ -378,29 +628,31 @@ src/
 └── sdk.cppm
 ```
 
-Most applications need only:
+Most applications only need:
 
 ```cpp
 import quilibrium;
 ```
 
+Project-owned APIs are exposed through modules rather than a traditional public-header architecture.
+
+The C header exists specifically as an ABI boundary for non-C++ runtimes.
+
 ---
 
-## Requirements
+# Build
+
+Requirements:
 
 ```text
 CMake 3.30+
 C++23 compiler
 OpenSSL 3
 libcurl
-Ninja (recommended)
+Ninja recommended
 ```
 
-C++ Modules support depends on compiler/build-system versions.
-
----
-
-## Build
+Configure and build:
 
 ```bash
 cmake \
@@ -409,7 +661,7 @@ cmake \
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release
 
-cmake --build build
+cmake --build build --parallel
 ```
 
 Strict warnings:
@@ -422,73 +674,306 @@ cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DQUILIBRIUM_WARNINGS_AS_ERRORS=ON
 
-cmake --build build
+cmake --build build --parallel
+```
+
+Run tests:
+
+```bash
+ctest \
+    --test-dir build \
+    --output-on-failure \
+    --no-tests=error
 ```
 
 ---
 
-## Tests
+# Install and Consume from C++
+
+Install:
 
 ```bash
-ctest --test-dir build --output-on-failure
+cmake --install build \
+    --prefix "$HOME/.local/quilibrium"
 ```
 
-The deterministic presigning suite covers:
+Consumer CMake:
 
-- official AWS S3 SigV4 presign test vector
-- GET / PUT / HEAD
-- fixed timestamps and deterministic signatures
-- expiration validation
-- credential scope
-- canonical query sorting
-- existing and duplicate query parameters
-- empty S3 subresources
-- spaces, UTF-8 and reserved object-key bytes
-- session tokens
-- required signed headers
-- Content-Type-constrained PUT
-- missing credentials
-- arbitrary multipart-compatible query parameters
-- configurable QStorage region
-- secret-key non-disclosure
-- tamper-sensitive signed header behavior
+```cmake
+find_package(Quilibrium CONFIG REQUIRED)
 
-### Optional live QStorage integration test
-
-Live tests are opt-in:
-
-```bash
-cmake \
-    -S . \
-    -B build-live \
-    -G Ninja \
-    -DQUILIBRIUM_ENABLE_LIVE_TESTS=ON
-
-cmake --build build-live
+target_link_libraries(
+    my_application
+    PRIVATE
+        Quilibrium::SDK
+)
 ```
 
-Set:
+Consumer source:
 
-```bash
-export Q_ACCESS_KEY_ID="..."
-export Q_SECRET_ACCESS_KEY="..."
-export Q_STORAGE_BUCKET="..."
-# Optional:
-export Q_STORAGE_REGION="..."
-export Q_STORAGE_ENDPOINT="https://qstorage.quilibrium.com"
+```cpp
+import quilibrium;
 ```
 
-Then:
-
-```bash
-ctest --test-dir build-live -R qstorage_presign_live --output-on-failure
-```
-
-The live test generates a presigned PUT, uploads without credentials, generates a presigned GET and verifies bytes, performs a presigned HEAD, and cleans up through the authenticated SDK path. It returns CTest skip code 77 when credentials or network access are unavailable.
+Consumers do not need to depend on internal module filenames.
 
 ---
 
-## Examples
+# Language Bindings
+
+C++ is the canonical implementation.
+
+Other runtimes use the stable C ABI exported by `libquilibrium`.
+
+```text
+                         C++23 Core
+                            │
+                            ▼
+                     libquilibrium
+                            │
+                            ▼
+                        Stable C ABI
+                            │
+          ┌─────────┬───────┼────────┬─────────┐
+          │         │       │        │         │
+          ▼         ▼       ▼        ▼         ▼
+          C       Python   Rust    Node.js    .NET
+```
+
+Available bindings:
+
+```text
+bindings/
+├── c/
+├── python/
+├── rust/
+├── node/
+└── dotnet/
+```
+
+---
+
+## Python
+
+```python
+from quilibrium_sdk import SDK
+
+with SDK(
+    hypersnap_endpoint="https://haatz.quilibrium.com"
+) as sdk:
+    user = sdk.user_by_fid(3)
+
+    print(user.json())
+```
+
+Configure the native library when it is not installed in the system library path:
+
+```bash
+export QUILIBRIUM_SDK_LIB=/path/to/libquilibrium.so
+export PYTHONPATH=/path/to/Quilibrium-SDK/bindings/python
+```
+
+On macOS:
+
+```bash
+export QUILIBRIUM_SDK_LIB=/path/to/libquilibrium.dylib
+```
+
+Python supports the HyperSnap, QStorage, QKMS, and native protocol bridge exposed by the stable ABI.
+
+---
+
+## Rust
+
+```rust
+use quilibrium_sdk::{
+    Config,
+    Sdk,
+};
+
+fn main() -> Result<(), quilibrium_sdk::Error>
+{
+    let sdk = Sdk::new(Config {
+        hypersnap_endpoint: Some(
+            "https://haatz.quilibrium.com".into()
+        ),
+        ..Default::default()
+    })?;
+
+    let user = sdk.user_by_fid(3)?;
+
+    println!(
+        "{}",
+        String::from_utf8_lossy(&user.body)
+    );
+
+    Ok(())
+}
+```
+
+The Rust binding is a source FFI crate located under:
+
+```text
+bindings/rust
+```
+
+Set `QUILIBRIUM_SDK_LIB_DIR` as documented by the Rust binding when linking against a non-system installation.
+
+---
+
+## Node.js
+
+The Node.js binding uses `koffi`.
+
+```javascript
+const {
+    SDK
+} = require("./bindings/node");
+
+const sdk = new SDK({
+    hypersnapEndpoint: "https://haatz.quilibrium.com"
+});
+
+try {
+    const user = sdk.userByFid(3);
+
+    console.log(
+        user.body.toString("utf8")
+    );
+} finally {
+    sdk.close();
+}
+```
+
+The native library may be selected through:
+
+```bash
+export QUILIBRIUM_SDK_LIB=/path/to/libquilibrium.so
+```
+
+or on macOS:
+
+```bash
+export QUILIBRIUM_SDK_LIB=/path/to/libquilibrium.dylib
+```
+
+---
+
+## .NET
+
+```csharp
+using Quilibrium;
+
+using var sdk = new Sdk(
+    hypersnapEndpoint: "https://haatz.quilibrium.com"
+);
+
+var user = sdk.UserByFid(3);
+
+Console.WriteLine(
+    user.Utf8Text
+);
+```
+
+The .NET binding uses P/Invoke against the same native `quilibrium` library.
+
+---
+
+## C
+
+The C ABI is the common portability boundary used by the language wrappers.
+
+```c
+#include <stdio.h>
+
+#include "quilibrium.h"
+
+int main(void)
+{
+    ql_sdk_config config = {
+        .hypersnap_endpoint = "https://haatz.quilibrium.com"
+    };
+
+    ql_error error = {0};
+
+    ql_sdk* sdk = ql_sdk_create(
+        &config,
+        &error
+    );
+
+    if (sdk == NULL) {
+        fprintf(
+            stderr,
+            "Unable to create SDK: %s\n",
+            error.message != NULL
+                ? error.message
+                : "unknown error"
+        );
+
+        ql_error_free(&error);
+        return 1;
+    }
+
+    ql_response response = {0};
+
+    const int result = ql_hypersnap_user_by_fid(
+        sdk,
+        3,
+        &response,
+        &error
+    );
+
+    if (result != 0) {
+        fprintf(
+            stderr,
+            "HyperSnap request failed: %s\n",
+            error.message != NULL
+                ? error.message
+                : "unknown error"
+        );
+
+        ql_error_free(&error);
+        ql_sdk_destroy(sdk);
+        return 1;
+    }
+
+    fwrite(
+        response.body.data,
+        1,
+        response.body.size,
+        stdout
+    );
+
+    fputc('\n', stdout);
+
+    ql_response_free(&response);
+    ql_error_free(&error);
+    ql_sdk_destroy(sdk);
+
+    return 0;
+}
+```
+
+The C ABI intentionally remains a conventional header boundary because it defines the stable binary interface consumed by non-C++ languages.
+
+---
+
+# Binding Coverage
+
+| Runtime | Integration    | HyperSnap | QStorage | QKMS | Native RPC |
+| ------- | -------------- | --------: | -------: | ---: | ---------: |
+| C++23   | Native modules |         ✅ |        ✅ |    ✅ |          ✅ |
+| C       | Stable ABI     |         ✅ |        ✅ |    ✅ |          ✅ |
+| Python  | C ABI wrapper  |         ✅ |        ✅ |    ✅ |          ✅ |
+| Rust    | FFI wrapper    |         ✅ |        ✅ |    ✅ |          ✅ |
+| Node.js | Koffi          |         ✅ |        ✅ |    ✅ |          ✅ |
+| .NET    | P/Invoke       |         ✅ |        ✅ |    ✅ |          ✅ |
+
+The C++ implementation remains the protocol and service core. Language bindings deliberately remain thin so protocol behavior is implemented once rather than independently reimplemented in each runtime.
+
+---
+
+# Examples
 
 ```text
 examples/
@@ -502,82 +987,64 @@ examples/
 └── miniapp_backend/
 ```
 
-Run the presign example:
+Examples should follow the same C++23 conventions as production-facing documentation:
 
-```bash
-Q_ACCESS_KEY_ID="..." \
-Q_SECRET_ACCESS_KEY="..." \
-./build/quilibrium_qstorage_presign_example my-bucket image.jpg image/jpeg
-```
-
-It prints the PUT URL, every required signed header, and a GET URL.
-
----
-
-## Install and consume
-
-```bash
-cmake --install build --prefix "$HOME/.local/quilibrium"
-```
-
-Consumer project:
-
-```cmake
-find_package(Quilibrium CONFIG REQUIRED)
-target_link_libraries(my_application PRIVATE Quilibrium::SDK)
-```
-
-```cpp
-import quilibrium;
-```
-
-Consumers do not need to know internal module filenames.
+* C++ modules for project APIs
+* `std::print` / `std::println` for formatted console output
+* explicit `std::expected`-style failure handling
+* initialized variables
+* `const` where mutation is unnecessary
+* no broad `using namespace`
+* readable formatting rather than compressed expressions
+* scoped ownership and RAII
+* explicit timeout and routing configuration when relevant
 
 ---
 
-## Cross-language bindings
+# Security
+
+* Never commit QStorage or QKMS credentials.
+* Never log secret keys.
+* Never place long-lived secrets in browser, desktop, mobile, or Mini App distributions.
+* Generate presigned capabilities inside trusted environments.
+* Use least-privilege credentials.
+* Keep presigned expirations as short as the workflow permits.
+* Treat `required_headers` as part of the cryptographic signature contract.
+* Treat a presigned URL as a temporary bearer capability.
+* Secret access keys and derived SigV4 signing keys must never appear in generated URLs or error messages.
+
+---
+
+# Service Coverage
+
+See:
 
 ```text
-bindings/
-├── c/
-├── python/
-├── rust/
-├── node/
-└── dotnet/
+docs/SERVICE_MATRIX.md
 ```
 
-The C++ implementation remains the canonical protocol/service core, with a stable C ABI for other language runtimes.
+for the detailed service matrix and intentionally reserved surfaces.
 
----
+# Upstream Compatibility
 
-## Security
+Quilibrium evolves quickly.
 
-- Never commit or log QStorage/QKMS secret credentials.
-- Never distribute secret credentials in desktop, mobile, browser, or Mini App binaries/bundles.
-- Use least-privilege credentials on trusted services.
-- Keep presigned expirations as short as the workflow reasonably allows.
-- Treat `required_headers` as part of the signature contract; clients must send the returned values exactly.
-- A presigned URL is a bearer capability until it expires. Protect it accordingly.
-- Secret access keys and derived signing keys are never included in presigned URLs or error messages.
-
----
-
-## Current service coverage
-
-See [`docs/SERVICE_MATRIX.md`](docs/SERVICE_MATRIX.md) for the detailed service matrix and intentionally reserved future surfaces.
-
----
-
-## Upstream compatibility
-
-Quilibrium evolves quickly. Protocol-sensitive compatibility information is kept in:
+Protocol-sensitive upstream compatibility information is pinned in:
 
 ```text
 compat/upstreams.json
 ```
 
----
+Applications relying on low-level protocol behavior should review this information when upgrading SDK versions.
 
-## Licensing
+# Licensing
 
-This project interfaces with upstream Quilibrium projects that may use different licenses. See [`LICENSE-NOTICE.md`](LICENSE-NOTICE.md) before redistributing upstream-derived implementation code.
+This project interfaces with upstream Quilibrium projects that may use different licenses.
+
+See:
+
+```text
+LICENSE-NOTICE.md
+```
+
+before redistributing upstream-derived implementation code.
