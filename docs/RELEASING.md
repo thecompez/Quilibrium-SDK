@@ -48,7 +48,7 @@ The installed CMake package intentionally declares OpenSSL and CURL as dependenc
 The release version is defined in the root `CMakeLists.txt`:
 
 ```cmake
-project(quilibrium_cpp_sdk VERSION 1.1.0 LANGUAGES C CXX)
+project(quilibrium_cpp_sdk VERSION 1.2.0 LANGUAGES C CXX)
 ```
 
 The Git tag must match that version exactly.
@@ -66,6 +66,20 @@ git push origin v1.2.0
 ```
 
 Pushing the tag starts `.github/workflows/release.yml`.
+
+### Recovering the failed initial v1.2.0 tag
+
+The first `v1.2.0` workflow run was created while the tagged `CMakeLists.txt` still declared version `1.1.0`, so the release validator correctly rejected it before any release assets were published. After committing the v1.2.0 fixes to `main`, move the unpublished tag to the corrected commit:
+
+```bash
+git tag -d v1.2.0
+git push origin :refs/tags/v1.2.0
+
+git tag -a v1.2.0 -m "Quilibrium SDK 1.2.0"
+git push origin v1.2.0
+```
+
+Do not rerun the failed release against the old tag; the tag must identify the corrected v1.2.0 source commit.
 
 The release workflow refuses to publish when the tag version and CMake project version differ.
 

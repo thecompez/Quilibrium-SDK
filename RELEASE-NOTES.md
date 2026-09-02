@@ -1,3 +1,41 @@
+# Quilibrium C++ SDK v1.2.0
+
+## Cross-platform CI and binary releases
+
+This release adds a GitHub Actions build, test, packaging, and release pipeline for the six primary native targets:
+
+- Linux x86-64
+- Linux ARM64
+- macOS Intel x86-64
+- macOS Apple Silicon ARM64
+- Windows x86-64
+- Windows ARM64
+
+Every CI target builds the SDK and C ABI, runs the deterministic test suite, installs the SDK to a clean prefix, verifies a separate `find_package(Quilibrium CONFIG REQUIRED)` consumer, and validates a generated CPack archive before a target is considered release-ready.
+
+Tagged releases publish six platform archives plus `SHA256SUMS` and `RELEASE-MANIFEST.json` only after the complete platform matrix succeeds.
+
+## Portability fixes
+
+- The C ABI version is derived from the CMake project version through `QUILIBRIUM_SDK_VERSION`; it is no longer independently hard-coded.
+- The Python binding version test is derived from `${PROJECT_VERSION}`.
+- Windows installs the C ABI import library into the SDK `lib/` directory in addition to the runtime DLL.
+- Linux uses pkg-config for libcurl discovery to match the system development package used by CI.
+- macOS uses the canonical CMake CURL target and no longer requires a Homebrew curl installation in CI.
+- JSON floating-point parsing uses a locale-independent compatibility path on Apple platforms because libc++ 22 marks floating-point `std::from_chars` unavailable for deployment targets older than macOS 26.
+- Decimal and exponent JSON parsing are covered by deterministic tests.
+
+## Packaging
+
+The installed/packaged SDK includes:
+
+- the C++ module interfaces and exported CMake package;
+- the stable C ABI library and public C header;
+- Python, Rust, Node.js, and .NET binding sources;
+- examples, compatibility metadata, and project documentation.
+
+---
+
 # Quilibrium C++ SDK v1.1.0
 
 ## SigV4 presigned URLs

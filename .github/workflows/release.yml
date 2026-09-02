@@ -125,6 +125,7 @@ jobs:
             gcc-14 \
             g++-14 \
             ninja-build \
+            pkg-config \
             libssl-dev \
             libcurl4-openssl-dev
 
@@ -139,16 +140,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          brew install llvm openssl@3 curl ninja
+          brew install llvm openssl@3 ninja
 
           llvm_prefix="$(brew --prefix llvm)"
           openssl_prefix="$(brew --prefix openssl@3)"
-          curl_prefix="$(brew --prefix curl)"
-
           echo "CC=${llvm_prefix}/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=${llvm_prefix}/bin/clang++" >> "$GITHUB_ENV"
           echo "OPENSSL_ROOT_DIR=${openssl_prefix}" >> "$GITHUB_ENV"
-          echo "CURL_ROOT=${curl_prefix}" >> "$GITHUB_ENV"
           echo "${llvm_prefix}/bin" >> "$GITHUB_PATH"
 
       - name: Toolchain information
