@@ -1,0 +1,496 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build, for example v1.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+
+    steps:
+      - name: Checkout repository metadata
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and project version
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          tag="${REQUESTED_TAG}"
+
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+
+          if ! git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+            echo "Release tag does not exist: ${tag}" >&2
+            exit 1
+          fi
+
+          commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          git checkout --detach "${commit}"
+
+          version="${tag#v}"
+          project_version="$({
+            sed -n \
+              's/.*project(quilibrium_cpp_sdk VERSION \([0-9][0-9.]*\).*/\1/p' \
+              CMakeLists.txt
+          } | head -n 1)"
+
+          if [[ -z "${project_version}" ]]; then
+            echo 'Unable to read the CMake project version.' >&2
+            exit 1
+          fi
+
+          if [[ "${version}" != "${project_version}" ]]; then
+            echo "Tag version:     ${version}" >&2
+            echo "Project version: ${project_version}" >&2
+            echo 'The release tag must match project(... VERSION ...).' >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
+          echo "Release tag: ${tag}"
+          echo "Version:     ${version}"
+          echo "Commit:      ${commit}"
+
+  unix:
+    name: Build ${{ matrix.package }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            package: linux-x64
+            setup: linux
+          - runner: ubuntu-24.04-arm
+            package: linux-arm64
+            setup: linux
+          - runner: macos-15-intel
+            package: macos-x64
+            setup: macos
+          - runner: macos-15
+            package: macos-arm64
+            setup: macos
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+
+      - name: Install Linux dependencies
+        if: matrix.setup == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install --yes \
+            gcc-14 \
+            g++-14 \
+            ninja-build \
+            libssl-dev \
+            libcurl4-openssl-dev
+
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      - name: Install macOS dependencies
+        if: matrix.setup == 'macos'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          set -euo pipefail
+
+          brew install llvm openssl@3 curl ninja
+
+          llvm_prefix="$(brew --prefix llvm)"
+          openssl_prefix="$(brew --prefix openssl@3)"
+          curl_prefix="$(brew --prefix curl)"
+
+          echo "CC=${llvm_prefix}/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=${llvm_prefix}/bin/clang++" >> "$GITHUB_ENV"
+          echo "OPENSSL_ROOT_DIR=${openssl_prefix}" >> "$GITHUB_ENV"
+          echo "CURL_ROOT=${curl_prefix}" >> "$GITHUB_ENV"
+          echo "${llvm_prefix}/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain information
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake --version
+          ninja --version
+          "$CC" --version
+          "$CXX" --version
+
+      - name: Configure release build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake \
+            -S . \
+            -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQUILIBRIUM_BUILD_TESTS=ON \
+            -DQUILIBRIUM_BUILD_EXAMPLES=OFF \
+            -DQUILIBRIUM_BUILD_C_API=ON \
+            -DQUILIBRIUM_WARNINGS_AS_ERRORS=ON \
+            -DQUILIBRIUM_ENABLE_LIVE_TESTS=OFF \
+            -DQUILIBRIUM_INSTALL_SDK_RESOURCES=ON
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build --parallel
+
+      - name: Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest \
+            --test-dir build \
+            --output-on-failure \
+            --no-tests=error
+
+      - name: Verify installed package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake \
+            --install build \
+            --prefix "$GITHUB_WORKSPACE/stage"
+
+          cmake \
+            -S tests/package_consumer \
+            -B consumer-build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage"
+
+          cmake --build consumer-build --parallel
+          ./consumer-build/quilibrium_cpp_package_consumer
+          ./consumer-build/quilibrium_c_package_consumer
+
+      - name: Create release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          archive_name="quilibrium-sdk-${{ needs.validate.outputs.version }}-${{ matrix.package }}"
+
+          cpack \
+            --config build/CPackConfig.cmake \
+            -G TGZ \
+            -B dist \
+            -D "CPACK_PACKAGE_FILE_NAME=${archive_name}"
+
+          archive="dist/${archive_name}.tar.gz"
+          test -f "${archive}"
+          tar -tzf "${archive}" >/dev/null
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.package }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Build ${{ matrix.package }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            package: windows-x64
+            architecture: x64
+            triplet: x64-windows-static-md
+          - runner: windows-11-arm
+            package: windows-arm64
+            architecture: ARM64
+            triplet: arm64-windows-static-md
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+
+      - name: Toolchain information
+        shell: pwsh
+        run: |
+          cmake --version
+
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw 'VCPKG_INSTALLATION_ROOT is not available on this runner.'
+          }
+
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" version
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
+            "openssl:${{ matrix.triplet }}" `
+            "curl:${{ matrix.triplet }}"
+
+      - name: Configure release build
+        shell: pwsh
+        run: |
+          cmake `
+            -S . `
+            -B build `
+            -G "Visual Studio 17 2022" `
+            -A "${{ matrix.architecture }}" `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}" `
+            -DQUILIBRIUM_BUILD_TESTS=ON `
+            -DQUILIBRIUM_BUILD_EXAMPLES=OFF `
+            -DQUILIBRIUM_BUILD_C_API=ON `
+            -DQUILIBRIUM_WARNINGS_AS_ERRORS=ON `
+            -DQUILIBRIUM_ENABLE_LIVE_TESTS=OFF `
+            -DQUILIBRIUM_INSTALL_SDK_RESOURCES=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake `
+            --build build `
+            --config Release `
+            --parallel
+
+      - name: Test
+        shell: pwsh
+        run: |
+          ctest `
+            --test-dir build `
+            --build-config Release `
+            --output-on-failure `
+            --no-tests=error
+
+      - name: Verify installed package
+        shell: pwsh
+        run: |
+          cmake `
+            --install build `
+            --config Release `
+            --prefix "$PWD/stage"
+
+          cmake `
+            -S tests/package_consumer `
+            -B consumer-build `
+            -G "Visual Studio 17 2022" `
+            -A "${{ matrix.architecture }}" `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}" `
+            "-DCMAKE_PREFIX_PATH=$PWD/stage"
+
+          cmake `
+            --build consumer-build `
+            --config Release `
+            --parallel
+
+          & "$PWD/consumer-build/Release/quilibrium_cpp_package_consumer.exe"
+
+          $env:PATH = "$PWD/stage/bin;$env:PATH"
+          & "$PWD/consumer-build/Release/quilibrium_c_package_consumer.exe"
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+
+          $archiveName = "quilibrium-sdk-${{ needs.validate.outputs.version }}-${{ matrix.package }}"
+
+          cpack `
+            --config build/CPackConfig.cmake `
+            -C Release `
+            -G ZIP `
+            -B dist `
+            -D "CPACK_PACKAGE_FILE_NAME=$archiveName"
+
+          $archive = "$PWD/dist/$archiveName.zip"
+
+          if (-not (Test-Path $archive)) {
+            throw "Expected package was not generated: $archive"
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+
+          try {
+            if ($zip.Entries.Count -eq 0) {
+              throw 'Generated ZIP archive is empty.'
+            }
+          }
+          finally {
+            $zip.Dispose()
+          }
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.package }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - unix
+      - windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd dist
+
+          mapfile -t archives < <(
+            find . -maxdepth 1 -type f \
+              \( -name '*.tar.gz' -o -name '*.zip' \) \
+              -printf '%f\n' | sort
+          )
+
+          if [[ "${#archives[@]}" -ne 6 ]]; then
+            printf 'Expected 6 release archives, found %s.\n' "${#archives[@]}" >&2
+            printf '%s\n' "${archives[@]}" >&2
+            exit 1
+          fi
+
+          sha256sum "${archives[@]}" > SHA256SUMS
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('.')
+          archives = sorted([
+              *root.glob('*.tar.gz'),
+              *root.glob('*.zip'),
+          ])
+
+          files = []
+          for path in archives:
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              files.append({
+                  'name': path.name,
+                  'size': path.stat().st_size,
+                  'sha256': digest,
+              })
+
+          manifest = {
+              'schema': 1,
+              'project': 'Quilibrium SDK',
+              'version': os.environ['RELEASE_VERSION'],
+              'tag': os.environ['RELEASE_TAG'],
+              'commit': os.environ['RELEASE_COMMIT'],
+              'files': files,
+          }
+
+          Path('RELEASE-MANIFEST.json').write_text(
+              json.dumps(manifest, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+
+      - name: Publish release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --target "${RELEASE_COMMIT}" \
+              --title "Quilibrium SDK ${RELEASE_VERSION}" \
+              --generate-notes \
+              --verify-tag
+          fi
+
+          gh release upload "${RELEASE_TAG}" \
+            dist/*.tar.gz \
+            dist/*.zip \
+            dist/SHA256SUMS \
+            dist/RELEASE-MANIFEST.json \
+            --clobber

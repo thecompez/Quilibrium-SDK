@@ -1,0 +1,299 @@
+name: Cross-platform CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unix:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            package: linux-x64
+            setup: linux
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            package: linux-arm64
+            setup: linux
+          - name: macOS Intel
+            runner: macos-15-intel
+            package: macos-x64
+            setup: macos
+          - name: macOS Apple Silicon
+            runner: macos-15
+            package: macos-arm64
+            setup: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        if: matrix.setup == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install --yes \
+            gcc-14 \
+            g++-14 \
+            ninja-build \
+            libssl-dev \
+            libcurl4-openssl-dev
+
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      - name: Install macOS dependencies
+        if: matrix.setup == 'macos'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          set -euo pipefail
+
+          brew install llvm openssl@3 curl ninja
+
+          llvm_prefix="$(brew --prefix llvm)"
+          openssl_prefix="$(brew --prefix openssl@3)"
+          curl_prefix="$(brew --prefix curl)"
+
+          echo "CC=${llvm_prefix}/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=${llvm_prefix}/bin/clang++" >> "$GITHUB_ENV"
+          echo "OPENSSL_ROOT_DIR=${openssl_prefix}" >> "$GITHUB_ENV"
+          echo "CURL_ROOT=${curl_prefix}" >> "$GITHUB_ENV"
+          echo "${llvm_prefix}/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain information
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake --version
+          ninja --version
+          "$CC" --version
+          "$CXX" --version
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake \
+            -S . \
+            -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQUILIBRIUM_BUILD_TESTS=ON \
+            -DQUILIBRIUM_BUILD_EXAMPLES=ON \
+            -DQUILIBRIUM_BUILD_C_API=ON \
+            -DQUILIBRIUM_WARNINGS_AS_ERRORS=ON \
+            -DQUILIBRIUM_ENABLE_LIVE_TESTS=OFF
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build --parallel
+
+      - name: Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest \
+            --test-dir build \
+            --output-on-failure \
+            --no-tests=error
+
+      - name: Install SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake \
+            --install build \
+            --prefix "$GITHUB_WORKSPACE/stage"
+
+      - name: Verify installed CMake package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cmake \
+            -S tests/package_consumer \
+            -B consumer-build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage"
+
+          cmake --build consumer-build --parallel
+          ./consumer-build/quilibrium_cpp_package_consumer
+          ./consumer-build/quilibrium_c_package_consumer
+
+      - name: Verify distributable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p package-out
+
+          cpack \
+            --config build/CPackConfig.cmake \
+            -G TGZ \
+            -B package-out \
+            -D "CPACK_PACKAGE_FILE_NAME=quilibrium-sdk-ci-${{ matrix.package }}"
+
+          test -f "package-out/quilibrium-sdk-ci-${{ matrix.package }}.tar.gz"
+          tar -tzf "package-out/quilibrium-sdk-ci-${{ matrix.package }}.tar.gz" >/dev/null
+
+  windows:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2025
+            package: windows-x64
+            architecture: x64
+            triplet: x64-windows-static-md
+          - name: Windows ARM64
+            runner: windows-11-arm
+            package: windows-arm64
+            architecture: ARM64
+            triplet: arm64-windows-static-md
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Toolchain information
+        shell: pwsh
+        run: |
+          cmake --version
+
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw 'VCPKG_INSTALLATION_ROOT is not available on this runner.'
+          }
+
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" version
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
+            "openssl:${{ matrix.triplet }}" `
+            "curl:${{ matrix.triplet }}"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake `
+            -S . `
+            -B build `
+            -G "Visual Studio 17 2022" `
+            -A "${{ matrix.architecture }}" `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}" `
+            -DQUILIBRIUM_BUILD_TESTS=ON `
+            -DQUILIBRIUM_BUILD_EXAMPLES=ON `
+            -DQUILIBRIUM_BUILD_C_API=ON `
+            -DQUILIBRIUM_WARNINGS_AS_ERRORS=ON `
+            -DQUILIBRIUM_ENABLE_LIVE_TESTS=OFF
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake `
+            --build build `
+            --config Release `
+            --parallel
+
+      - name: Test
+        shell: pwsh
+        run: |
+          ctest `
+            --test-dir build `
+            --build-config Release `
+            --output-on-failure `
+            --no-tests=error
+
+      - name: Install SDK
+        shell: pwsh
+        run: |
+          cmake `
+            --install build `
+            --config Release `
+            --prefix "$PWD/stage"
+
+      - name: Verify installed CMake package
+        shell: pwsh
+        run: |
+          cmake `
+            -S tests/package_consumer `
+            -B consumer-build `
+            -G "Visual Studio 17 2022" `
+            -A "${{ matrix.architecture }}" `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}" `
+            "-DCMAKE_PREFIX_PATH=$PWD/stage"
+
+          cmake `
+            --build consumer-build `
+            --config Release `
+            --parallel
+
+          & "$PWD/consumer-build/Release/quilibrium_cpp_package_consumer.exe"
+
+          $env:PATH = "$PWD/stage/bin;$env:PATH"
+          & "$PWD/consumer-build/Release/quilibrium_c_package_consumer.exe"
+
+      - name: Verify distributable archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package-out -Force | Out-Null
+
+          cpack `
+            --config build/CPackConfig.cmake `
+            -C Release `
+            -G ZIP `
+            -B package-out `
+            -D "CPACK_PACKAGE_FILE_NAME=quilibrium-sdk-ci-${{ matrix.package }}"
+
+          $archive = "$PWD/package-out/quilibrium-sdk-ci-${{ matrix.package }}.zip"
+
+          if (-not (Test-Path $archive)) {
+            throw "Expected package was not generated: $archive"
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+
+          try {
+            if ($zip.Entries.Count -eq 0) {
+              throw 'Generated ZIP archive is empty.'
+            }
+          }
+          finally {
+            $zip.Dispose()
+          }
