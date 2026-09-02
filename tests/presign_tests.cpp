@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstddef>
 #include <expected>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
