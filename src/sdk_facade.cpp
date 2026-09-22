@@ -636,13 +636,32 @@ task<result<service_response>> kms_api::invoke(std::string operation,std::string
     if (!state) co_return std::unexpected(error{.domain=error_domain::configuration,.code=850,.message="SDK state is unavailable"});
     auto view=as_bytes(json_payload);
     bytes payload(view.begin(),view.end());
-    auto response=send_with_failover(*state,state->kms,http_method::post,"/",{{"content-type","application/x-amz-json-1.1"},{"x-amz-target","TrentService."+operation}},std::move(payload),options,&state->kms_credentials,state->kms_region,"kms");
+    auto response=send_with_failover(*state,state->kms,http_method::post,"/",{{"content-type","application/json"},{"x-amz-target","TrentService."+operation}},std::move(payload),options,&state->kms_credentials,state->kms_region,"kms");
     if (!response) co_return std::unexpected(response.error());
     co_return convert(std::move(*response));
 }
 
 #define QL_SDK_KMS_FORWARD(name,operation) task<result<service_response>> kms_api::name(std::string payload,call_options options) const { co_return sync_wait(invoke(operation,std::move(payload),options)); }
-QL_SDK_KMS_FORWARD(create_key,"CreateKey")
+task<result<service_response>> kms_api::create_key(std::string json_payload,call_options options) const {
+    auto* state=state_cast(state_);
+    if (!state) co_return std::unexpected(error{.domain=error_domain::configuration,.code=850,.message="SDK state is unavailable"});
+    options.idempotent=false;
+    auto view=as_bytes(json_payload);
+    bytes payload(view.begin(),view.end());
+    auto response=send_with_failover(*state,state->kms,http_method::post,"/",{{"content-type","application/json"},{"x-amz-target","TrentService.CreateKey"}},std::move(payload),options,&state->kms_credentials,state->kms_region,"kms");
+    if (!response) co_return std::unexpected(response.error());
+    co_return convert(std::move(*response));
+}
+task<result<service_response>> kms_api::create_key_async(std::string json_payload,call_options options) const {
+    auto* state=state_cast(state_);
+    if (!state) co_return std::unexpected(error{.domain=error_domain::configuration,.code=850,.message="SDK state is unavailable"});
+    options.idempotent=false;
+    auto view=as_bytes(json_payload);
+    bytes payload(view.begin(),view.end());
+    auto response=send_with_failover(*state,state->kms,http_method::post,"/?async=1",{{"content-type","application/json"},{"x-amz-target","TrentService.CreateKey"}},std::move(payload),options,&state->kms_credentials,state->kms_region,"kms");
+    if (!response) co_return std::unexpected(response.error());
+    co_return convert(std::move(*response));
+}
 QL_SDK_KMS_FORWARD(describe_key,"DescribeKey")
 QL_SDK_KMS_FORWARD(encrypt,"Encrypt")
 QL_SDK_KMS_FORWARD(decrypt,"Decrypt")

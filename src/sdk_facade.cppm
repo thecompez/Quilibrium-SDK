@@ -195,6 +195,8 @@ public:
     /** Invokes any compatible `TrentService.<operation>` QKMS operation. */
     [[nodiscard]] task<result<service_response>> invoke(std::string operation,std::string json_payload="{}",call_options options={}) const;
     [[nodiscard]] task<result<service_response>> create_key(std::string json_payload="{}",call_options options={}) const;
+    /** Non-blocking CreateKey (`?async=1`) for MPC/DKG operations that may outlive proxy timeouts. */
+    [[nodiscard]] task<result<service_response>> create_key_async(std::string json_payload="{}",call_options options={}) const;
     [[nodiscard]] task<result<service_response>> describe_key(std::string json_payload,call_options options={}) const;
     [[nodiscard]] task<result<service_response>> encrypt(std::string json_payload,call_options options={}) const;
     [[nodiscard]] task<result<service_response>> decrypt(std::string json_payload,call_options options={}) const;

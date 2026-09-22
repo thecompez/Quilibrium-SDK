@@ -15,8 +15,12 @@ class client final {
 public:
     client(config configuration, http_transport_ptr transport);
     ~client(); client(client&&) noexcept; client& operator=(client&&) noexcept; client(const client&)=delete; client& operator=(const client&)=delete;
-    [[nodiscard]] task<result<response>> invoke(std::string operation, bytes json_payload, call_options options = {});
+    /** Invokes a QKMS operation. `query` is the raw query string without a leading `?` and is included in SigV4 canonicalization. */
+    [[nodiscard]] task<result<response>> invoke(std::string operation, bytes json_payload, call_options options = {}, std::string query = {});
+    /** Blocking CreateKey; waits for QKMS to complete the MPC operation. */
     [[nodiscard]] task<result<response>> create_key(bytes payload, call_options options = {});
+    /** Non-blocking CreateKey (`?async=1`); avoids proxy/CDN 504s while MPC/DKG continues asynchronously. */
+    [[nodiscard]] task<result<response>> create_key_async(bytes payload, call_options options = {});
     [[nodiscard]] task<result<response>> describe_key(bytes payload, call_options options = {});
     [[nodiscard]] task<result<response>> list_keys(bytes payload = {}, call_options options = {});
     [[nodiscard]] task<result<response>> enable_key(bytes payload, call_options options = {});

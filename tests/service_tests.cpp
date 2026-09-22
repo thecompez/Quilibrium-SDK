@@ -15,15 +15,23 @@ struct mock_state final {
     bool saw_kms_target{false};
     bool saw_multipart{false};
     bool saw_rotation_target{false};
+    bool saw_async_create{false};
+    bool saw_qkms_json_content_type{false};
+    bool saw_create_non_idempotent{false};
 };
 
-quilibrium::result<quilibrium::http_response> service_send(void* opaque,quilibrium::http_request request,quilibrium::call_options) {
+quilibrium::result<quilibrium::http_response> service_send(void* opaque,quilibrium::http_request request,quilibrium::call_options options) {
     auto* state=static_cast<mock_state*>(opaque);
     if (request.header_fields.contains("authorization")) state->saw_authorization=true;
     if (request.target.find("?uploads") != std::string::npos) state->saw_multipart=true;
     if (const auto it=request.header_fields.find("x-amz-target");it!=request.header_fields.end()) {
         if (it->second=="TrentService.Sign") state->saw_kms_target=true;
         if (it->second=="TrentService.EnableKeyRotation") state->saw_rotation_target=true;
+        if (it->second=="TrentService.CreateKey") {
+            if (request.target=="/?async=1") state->saw_async_create=true;
+            if (!options.idempotent) state->saw_create_non_idempotent=true;
+        }
+        if (const auto ct=request.header_fields.find("content-type");ct!=request.header_fields.end() && ct->second=="application/json") state->saw_qkms_json_content_type=true;
     }
     std::string body=request.target.starts_with("/v2/farcaster/user")?R"({"user":{"fid":3,"username":"dwr.eth"}})":"{}";
     const auto view=quilibrium::as_bytes(body);
@@ -66,8 +74,15 @@ int main() {
         assert(response&&response->status_code==200);
         auto rotation=quilibrium::sync_wait(client.enable_key_rotation({}));
         assert(rotation&&rotation->status_code==200);
+        auto blocking_create=quilibrium::sync_wait(client.create_key({}));
+        assert(blocking_create&&blocking_create->status_code==200);
+        auto async_create=quilibrium::sync_wait(client.create_key_async({}));
+        assert(async_create&&async_create->status_code==200);
         assert(state->saw_kms_target);
         assert(state->saw_rotation_target);
+        assert(state->saw_async_create);
+        assert(state->saw_qkms_json_content_type);
+        assert(state->saw_create_non_idempotent);
     }
 
     {

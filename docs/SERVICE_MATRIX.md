@@ -6,7 +6,7 @@
 | HyperSnap casts | `quilibrium.sdk`, `quilibrium.hypersnap` | Typed get/search, conversation JSON + raw API | Farcaster writes use signed protocol messages |
 | HyperSnap feeds | `quilibrium.sdk`, `quilibrium.hypersnap` | Following/trending/user-casts typed pages | Additional documented paths remain available through raw GET |
 | QStorage | `quilibrium.sdk`, `quilibrium.qstorage` | Header SigV4, presigned PUT/GET/HEAD URLs, signed-header contracts, bucket/object common ops, copy/head/list, multipart create/upload/complete/abort/list, raw execute/presign | XML is returned raw; full presigned multipart orchestration can build on generic arbitrary-target presigning |
-| QKMS | `quilibrium.sdk`, `quilibrium.qkms` | SigV4 generic invoke + named key/crypto/data-key/MAC/import/policy/alias/grant/tag/rotation/replication/deletion methods | QNZM/MPC sidecar login/session workflow is separate from the KMS-compatible API |
+| QKMS | `quilibrium.sdk`, `quilibrium.qkms` | SigV4 generic invoke + named key/crypto/data-key/MAC/import/policy/alias/grant/tag/rotation/replication/deletion methods + async `CreateKey` (`?async=1`) | QNZM/MPC sidecar login/session and participant ceremony workflow are separate from the KMS-compatible API |
 | NodeService | `quilibrium.sdk`, `quilibrium.protocol` | Unary raw-protobuf call + complete registry | Typed generated protobuf wrapper not bundled |
 | ConnectivityService | same | Unary raw-protobuf + registry | — |
 | GlobalService | same | Unary methods callable; stream method registered | Server streaming execution not implemented in v1.1 |

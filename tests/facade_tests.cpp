@@ -9,10 +9,13 @@ import quilibrium.sdk;
 struct mock_state final {
     bool saw_storage_auth{false};
     bool saw_kms_auth{false};
+    bool saw_kms_async_create{false};
+    bool saw_kms_json_content_type{false};
+    bool saw_kms_create_non_idempotent{false};
     bool saw_native_grpc{false};
 };
 
-quilibrium::result<quilibrium::http_response> mock_send(void* opaque,quilibrium::http_request request,quilibrium::call_options) {
+quilibrium::result<quilibrium::http_response> mock_send(void* opaque,quilibrium::http_request request,quilibrium::call_options options) {
     auto* state=static_cast<mock_state*>(opaque);
     std::string body;
     quilibrium::http_headers headers{{"content-type","application/json"}};
@@ -24,8 +27,13 @@ quilibrium::result<quilibrium::http_response> mock_send(void* opaque,quilibrium:
     } else if(request.target=="/bucket/object.bin") {
         state->saw_storage_auth=request.header_fields.contains("authorization");
         body="storage-ok";
-    } else if(request.target=="/"&&request.header_fields.contains("x-amz-target")) {
+    } else if((request.target=="/"||request.target=="/?async=1")&&request.header_fields.contains("x-amz-target")) {
         state->saw_kms_auth=request.header_fields.contains("authorization");
+        if(request.header_fields.at("x-amz-target")=="TrentService.CreateKey") {
+            if(request.target=="/?async=1") state->saw_kms_async_create=true;
+            if(!options.idempotent) state->saw_kms_create_non_idempotent=true;
+        }
+        if(const auto ct=request.header_fields.find("content-type");ct!=request.header_fields.end()&&ct->second=="application/json") state->saw_kms_json_content_type=true;
         body=R"({"Signature":"AA=="})";
     } else if(request.target=="/quilibrium.node.node.pb.NodeService/GetNodeInfo") {
         state->saw_native_grpc=true;
@@ -63,6 +71,10 @@ int main(){
 
     auto signed_value=quilibrium::sync_wait(q->kms().invoke("Sign",R"({"KeyId":"test"})"));
     assert(signed_value&&signed_value->status_code==200&&state->saw_kms_auth);
+    auto blocking_key=quilibrium::sync_wait(q->kms().create_key(R"({"KeySpec":"ECC_SECG_P256K1"})"));
+    assert(blocking_key&&blocking_key->status_code==200&&state->saw_kms_create_non_idempotent);
+    auto async_key=quilibrium::sync_wait(q->kms().create_key_async(R"({"KeySpec":"ECC_SECG_P256K1"})"));
+    assert(async_key&&async_key->status_code==200&&state->saw_kms_async_create&&state->saw_kms_json_content_type&&state->saw_kms_create_non_idempotent);
 
     auto node_info=quilibrium::sync_wait(q->native().call(quilibrium::native_service::node,"GetNodeInfo",{}));
     assert(node_info&&node_info->size()==2&&state->saw_native_grpc);
