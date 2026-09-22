@@ -48,21 +48,21 @@ The installed CMake package intentionally declares OpenSSL and CURL as dependenc
 The release version is defined in the root `CMakeLists.txt`:
 
 ```cmake
-project(quilibrium_cpp_sdk VERSION 1.2.0 LANGUAGES C CXX)
+project(quilibrium_cpp_sdk VERSION 1.2.1 LANGUAGES C CXX)
 ```
 
 The Git tag must match that version exactly.
 
-For version `1.2.0`:
+For version `1.2.1`:
 
 ```bash
-# Update project(... VERSION 1.2.0 ...) first.
+# Update project(... VERSION 1.2.1 ...) first.
 git add CMakeLists.txt
-git commit -m "Prepare v1.2.0"
+git commit -m "Prepare v1.2.1"
 git push origin main
 
-git tag -a v1.2.0 -m "Quilibrium SDK 1.2.0"
-git push origin v1.2.0
+git tag -a v1.2.1 -m "Quilibrium SDK 1.2.1"
+git push origin v1.2.1
 ```
 
 Pushing the tag starts `.github/workflows/release.yml`.
@@ -88,7 +88,7 @@ The release workflow refuses to publish when the tag version and CMake project v
 The release workflow can also be started manually from GitHub Actions. Supply an existing tag such as:
 
 ```text
-v1.2.0
+v1.2.1
 ```
 
 Manual mode still validates that the tag exists and that its version matches the CMake project version at the tagged commit.
@@ -98,12 +98,12 @@ Manual mode still validates that the tag exists and that its version matches the
 A successful release contains exactly six platform archives plus two integrity metadata files:
 
 ```text
-quilibrium-sdk-1.2.0-linux-x64.tar.gz
-quilibrium-sdk-1.2.0-linux-arm64.tar.gz
-quilibrium-sdk-1.2.0-macos-x64.tar.gz
-quilibrium-sdk-1.2.0-macos-arm64.tar.gz
-quilibrium-sdk-1.2.0-windows-x64.zip
-quilibrium-sdk-1.2.0-windows-arm64.zip
+quilibrium-sdk-1.2.1-linux-x64.tar.gz
+quilibrium-sdk-1.2.1-linux-arm64.tar.gz
+quilibrium-sdk-1.2.1-macos-x64.tar.gz
+quilibrium-sdk-1.2.1-macos-arm64.tar.gz
+quilibrium-sdk-1.2.1-windows-x64.zip
+quilibrium-sdk-1.2.1-windows-arm64.zip
 SHA256SUMS
 RELEASE-MANIFEST.json
 ```

@@ -1,3 +1,20 @@
+# Quilibrium C++ SDK v1.2.1
+
+## QKMS reliability and async key creation
+
+- Added signed async QKMS key creation via `CreateKey?async=1`, matching Quilibrium's current QKMS SDK behavior and avoiding long-lived MPC/DKG HTTP requests being terminated by CDN or proxy timeouts.
+- QKMS requests now use `Content-Type: application/json`, matching the current Quilibrium sidecar behavior used for canonical request validation.
+- Blocking and async `CreateKey` calls are explicitly non-idempotent so timeout/5xx handling cannot automatically retry and accidentally create duplicate key tasks.
+- Added high-level facade support for `create_key_async()` and deterministic tests for the async target, content type, and retry semantics.
+- Clarified that this SDK implements the signed QKMS HTTP/KMS surface; participant-side QNZM/MPC sidecar ceremony orchestration remains the responsibility of Quilibrium's dedicated QKMS tooling.
+
+## Release maintenance
+
+- Bumped the SDK, C ABI, package metadata, and CI version validation to `1.2.1`.
+- Kept the full cross-platform release pipeline for Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64/ARM64.
+
+---
+
 # Quilibrium C++ SDK v1.2.0
 
 ## Cross-platform CI and binary releases

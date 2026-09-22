@@ -3,7 +3,7 @@
 #include <string.h>
 
 int main(void) {
-    assert(strcmp(ql_version(),"1.2.0")==0);
+    assert(strcmp(ql_version(),"1.2.1")==0);
     ql_error error={0};
     ql_sdk* sdk=ql_sdk_create(NULL,&error);
     assert(sdk!=NULL);
