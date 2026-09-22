@@ -464,6 +464,18 @@ The high-level API covers operations including:
 
 The generic `invoke()` API remains available for compatible QKMS operations that do not yet have a dedicated facade function.
 
+For MPC-backed key creation, prefer `create_key_async()` when the ceremony can outlive an HTTP proxy/CDN timeout. It sends the QKMS-compatible `CreateKey` request with the signed `?async=1` query so QKMS can acknowledge the task immediately while DKG continues asynchronously:
+
+```cpp
+const auto created = quilibrium::sync_wait(
+    sdk->kms().create_key_async(
+        R"({"KeySpec":"ECC_SECG_P256K1","KeyUsage":"SIGN_VERIFY"})"
+    )
+);
+```
+
+This SDK intentionally covers the signed QKMS HTTP/KMS surface. The QNZM login flow and participant-side MPC sidecar/ceremony orchestration are a separate concern; applications that need browser/server sidecars participating in DKG should use the official Quilibrium QKMS SDK for that layer.
+
 ---
 
 # Native Quilibrium Protocol

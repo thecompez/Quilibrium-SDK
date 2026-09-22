@@ -27,15 +27,16 @@ client::~client()=default;
 client::client(client&&) noexcept=default;
 client& client::operator=(client&&) noexcept=default;
 
-task<result<response>> client::invoke(std::string operation,bytes payload,call_options options) {
+task<result<response>> client::invoke(std::string operation,bytes payload,call_options options,std::string query) {
     if(!impl_->transport) co_return std::unexpected(error{.domain=error_domain::configuration,.code=400,.message="HTTP transport is not configured"});
     if(impl_->endpoints.empty()) co_return std::unexpected(error{.domain=error_domain::configuration,.code=401,.message="QKMS endpoint list is empty"});
 
     const auto attempts = std::max<std::uint32_t>(1U, options.max_attempts);
     error last_error{.domain=error_domain::transport,.code=402,.message="QKMS request failed",.retryable=true};
+    const std::string target=query.empty()?"/":"/?"+query;
     for(std::uint32_t attempt=0; attempt<attempts; ++attempt) {
         const auto& selected=impl_->endpoints[attempt % impl_->endpoints.size()];
-        http_request request{.verb=http_method::post,.target_endpoint=selected,.target="/",.header_fields={{"content-type","application/x-amz-json-1.1"},{"x-amz-target",impl_->target_prefix+"."+operation}},.body=payload};
+        http_request request{.verb=http_method::post,.target_endpoint=selected,.target=target,.header_fields={{"content-type","application/json"},{"x-amz-target",impl_->target_prefix+"."+operation}},.body=payload};
         if(auto status=impl_->signer.sign(request);!status) co_return std::unexpected(status.error());
         auto raw=impl_->transport->send_now(std::move(request),options);
         if(!raw) {
@@ -53,7 +54,8 @@ task<result<response>> client::invoke(std::string operation,bytes payload,call_o
 }
 
 #define QL_KMS_FORWARD(name,operation) task<result<response>> client::name(bytes p,call_options o){co_return sync_wait(invoke(operation,std::move(p),o));}
-QL_KMS_FORWARD(create_key,"CreateKey")
+task<result<response>> client::create_key(bytes p,call_options o){o.idempotent=false;co_return sync_wait(invoke("CreateKey",std::move(p),o));}
+task<result<response>> client::create_key_async(bytes p,call_options o){o.idempotent=false;co_return sync_wait(invoke("CreateKey",std::move(p),o,"async=1"));}
 QL_KMS_FORWARD(describe_key,"DescribeKey")
 QL_KMS_FORWARD(enable_key,"EnableKey")
 QL_KMS_FORWARD(disable_key,"DisableKey")
